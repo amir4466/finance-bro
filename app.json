@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Finance Bro",
+    "slug": "finance-bro",
+    "scheme": "financebro",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.personal.financebro"
+    },
+    "android": {
+      "package": "app.personal.financebro",
+      "adaptiveIcon": {
+        "backgroundColor": "#D9E5EF"
+      }
+    },
+    "plugins": [
+      "expo-document-picker",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#FF2400"
+        }
+      ]
+    ]
+  }
+}
