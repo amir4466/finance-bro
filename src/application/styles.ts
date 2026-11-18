@@ -2,6 +2,8 @@ import { Platform, StyleSheet } from 'react-native';
 import { C } from '../shared/theme';
 
 const styles = StyleSheet.create({
+  keyboardAvoider: { flex: 1 },
+  pageScroll: { flex: 1 },
   safeArea: { flex: 1, backgroundColor: C.bg },
   loadingScreen: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', gap: 18 },
   loadingText: { color: C.onyxSoft, fontSize: 14, fontWeight: '600' },
@@ -213,5 +215,12 @@ const styles = StyleSheet.create({
   importDot: { height: 7, width: 7, borderRadius: 4, backgroundColor: C.steelDark },
   importMeta: { flex: 1 },
   importAmount: { color: C.onyx, fontSize: 10, fontWeight: '800' },
+  merchantRulesSection: { backgroundColor: '#F8FAFB', borderRadius: 15, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: C.line },
+  merchantRulesTitle: { color: C.onyx, fontSize: 12, fontWeight: '800' },
+  merchantRulesIntro: { color: C.muted, fontSize: 10, lineHeight: 14, marginTop: 4, marginBottom: 9 },
+  merchantRuleCard: { borderTopWidth: 1, borderTopColor: C.line, paddingTop: 9, marginTop: 7, gap: 5 },
+  merchantRuleName: { color: C.onyx, fontSize: 11, fontWeight: '800' },
+  merchantRuleCount: { color: C.muted, fontSize: 9 },
+  merchantRuleHint: { color: C.steelDark, fontSize: 9, lineHeight: 13, marginTop: 4 },
 });
 export { styles };

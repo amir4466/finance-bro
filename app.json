@@ -9,7 +9,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.personal.financebro"
+      "bundleIdentifier": "app.personal.financebro",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "app.personal.financebro",
@@ -25,7 +28,50 @@
         {
           "color": "#FF2400"
         }
+      ],
+      [
+        "expo-widgets",
+        {
+          "widgets": [
+            {
+              "name": "QuickAddWidget",
+              "displayName": "Finance Bro Quick Add",
+              "description": "Open a new expense entry in Finance Bro.",
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium"
+                ],
+                "initialLayout": "src/widgets/QuickAddWidget.ios.tsx"
+              },
+              "android": null
+            }
+          ]
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ExpoWidgetsTarget",
+                  "bundleIdentifier": "app.personal.financebro.ExpoWidgetsTarget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.app.personal.financebro"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "b5197f9d-390e-4200-8984-4f1092a137df"
+      }
+    },
+    "owner": "amir4466"
   }
 }

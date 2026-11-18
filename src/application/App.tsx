@@ -3,13 +3,14 @@ import { File } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView,
+  Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, SafeAreaView,
   ScrollView, Text, TextInput, View,
 } from 'react-native';
 import type { ScrollViewInstance } from 'react-native';
-import type { AppData, Budget, ChatMessage, EntryKind, Reminder, SheetName, Tab, Transaction, Wish } from '../domain/types';
+import type { AppData, Budget, ChatMessage, EntryKind, MerchantRule, MerchantRulePrompt, Reminder, SheetName, Tab, Transaction, Wish } from '../domain/types';
 import { starterData } from '../data/demoData';
 import { categoryFromDescription, parseAmount, parseStatement } from '../features/transactions/csvImport';
+import { applyMerchantCategory, applyMerchantRules, findMerchantRule, findRecurringUnknownMerchants } from '../features/transactions/merchantRules';
 import { C, CATEGORIES, CATEGORY_ICONS } from '../shared/theme';
 import { daysAgo, isoDay, makeId, money, monthLabel, shortDate } from '../shared/formatters';
 import { ChoiceRow, EmptyState, Field, PixelBuddy, SectionTitle, Sheet } from '../shared/components';
@@ -39,6 +40,7 @@ export default function App() {
   const [reminderAmount, setReminderAmount] = useState('');
   const [reminderDate, setReminderDate] = useState('');
   const [statementRows, setStatementRows] = useState<Transaction[]>([]);
+  const [merchantRulePrompts, setMerchantRulePrompts] = useState<MerchantRulePrompt[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
@@ -98,7 +100,7 @@ export default function App() {
   const updateData = (patch: Partial<AppData>) => setData((current) => {
     if (!current) return current;
     const startingWithRealTransaction = current.isDemo && Boolean(patch.transactions?.some((item) => !item.id.startsWith('sample-')));
-    const clearingEverything = patch.transactions?.length === 0 && patch.budgets?.length === 0 && patch.wishes?.length === 0 && patch.reminders?.length === 0;
+    const clearingEverything = patch.transactions?.length === 0 && patch.budgets?.length === 0 && patch.wishes?.length === 0 && patch.reminders?.length === 0 && patch.merchantRules?.length === 0;
     const next: AppData = { ...current, ...patch, isDemo: current.isDemo && !startingWithRealTransaction && !clearingEverything };
     if (startingWithRealTransaction) {
       next.transactions = (patch.transactions ?? current.transactions).filter((item) => !item.id.startsWith('sample-'));
@@ -110,6 +112,14 @@ export default function App() {
   const openTransaction = () => {
     setEditingTransactionId(null); setTxTitle(''); setTxAmount(''); setTxKind('expense'); setTxCategory('Groceries'); setSheet('transaction');
   };
+  useEffect(() => {
+    const openQuickAddFromUrl = (url: string | null | undefined) => {
+      if (url?.startsWith('financebro://quick-add')) openTransaction();
+    };
+    void Linking.getInitialURL().then(openQuickAddFromUrl).catch(() => {});
+    const subscription = Linking.addEventListener('url', ({ url }) => openQuickAddFromUrl(url));
+    return () => subscription.remove();
+  }, []);
   const openEditTransaction = (item: Transaction) => {
     setEditingTransactionId(item.id); setTxTitle(item.title); setTxAmount(String(item.amount)); setTxKind(item.kind); setTxCategory(item.category); setSheet('transaction');
   };
@@ -120,9 +130,14 @@ export default function App() {
     if (editingTransactionId) {
       updateData({ transactions: safeData.transactions.map((item) => item.id === editingTransactionId ? { ...item, title: txTitle.trim(), amount, category, kind: txKind } : item) });
     } else {
-      updateData({ transactions: [{ id: makeId(), title: txTitle.trim(), amount, category, kind: txKind, date: today }, ...safeData.transactions] });
+      updateData({ transactions: [{ id: makeId(), title: txTitle.trim(), amount, category, kind: txKind, date: today, source: 'manual' }, ...safeData.transactions] });
     }
     setSheet(null);
+  };
+
+  const updateMerchantRuleCategory = (merchantKey: string, category: string) => {
+    setMerchantRulePrompts((current) => current.map((merchant) => merchant.merchantKey === merchantKey ? { ...merchant, category } : merchant));
+    setStatementRows((current) => applyMerchantCategory(current, merchantKey, category));
   };
 
   const openBudget = (category = 'Groceries') => {
@@ -183,9 +198,11 @@ export default function App() {
       const importedFile = new File(asset.uri);
       try {
         const contents = await importedFile.text();
-        const parsed = parseStatement(contents);
+        const parsed = applyMerchantRules(parseStatement(contents), safeData.merchantRules ?? []);
         if (!parsed.length) { Alert.alert('No transactions found', 'The CSV was read, but no transaction rows with amounts were found.'); return; }
-        setStatementRows(parsed); setSheet('statement');
+        setStatementRows(parsed);
+        setMerchantRulePrompts(findRecurringUnknownMerchants(parsed, safeData.merchantRules ?? []));
+        setSheet('statement');
       } finally {
         try { importedFile.delete(); } catch { /* the selected file may not have a deletable cache copy */ }
       }
@@ -193,8 +210,16 @@ export default function App() {
   };
 
   const confirmImport = () => {
-    updateData({ transactions: [...statementRows, ...safeData.transactions] });
-    setSheet(null); setStatementRows([]);
+    const merchantRules: MerchantRule[] = [...(safeData.merchantRules ?? [])];
+    merchantRulePrompts.forEach((merchant) => {
+      if (!merchant.category) return;
+      const rule: MerchantRule = { merchantKey: merchant.merchantKey, merchantName: merchant.merchantName, category: merchant.category };
+      const existingIndex = merchantRules.findIndex((item) => item.merchantKey === merchant.merchantKey);
+      if (existingIndex >= 0) merchantRules[existingIndex] = rule;
+      else merchantRules.push(rule);
+    });
+    updateData({ transactions: [...statementRows, ...safeData.transactions], merchantRules });
+    setSheet(null); setStatementRows([]); setMerchantRulePrompts([]);
     Alert.alert('Statement imported', `${statementRows.length} transactions were added. You can adjust categories in Activity.`);
   };
 
@@ -208,7 +233,8 @@ export default function App() {
       try { await cancelPaymentReminder(reminder.notificationId); } catch { /* notification may already have been delivered */ }
     }
     updateData({ reminders: safeData.reminders.filter((item) => item.id !== reminder.id) });
-    updateData({ transactions: [{ id: makeId(), title: reminder.title, amount: reminder.amount, category: categoryFromDescription(reminder.title), kind: 'expense', date: today }, ...safeData.transactions] });
+    const merchantCategory = findMerchantRule(reminder.title, safeData.merchantRules ?? [])?.category;
+    updateData({ transactions: [{ id: makeId(), title: reminder.title, amount: reminder.amount, category: merchantCategory ?? categoryFromDescription(reminder.title), kind: 'expense', date: today, source: 'manual' }, ...safeData.transactions] });
   };
 
   const removeReminder = (reminder: Reminder) => Alert.alert('Remove this reminder?', `“${reminder.title}” will be removed. No payment will be made.`, [
@@ -275,11 +301,11 @@ export default function App() {
     setGeminiEnabled(value);
   };
 
-  const clearAllData = () => Alert.alert('Clear this device’s finance data?', 'This permanently removes transactions, budgets, wishes, and reminders stored by Finance Bro on this device.', [
+  const clearAllData = () => Alert.alert('Clear this device’s finance data?', 'This permanently removes transactions, budgets, wishes, reminders, and saved merchant labels stored by Finance Bro on this device.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Clear data', style: 'destructive', onPress: async () => {
       await Promise.all(safeData.reminders.map(async (reminder) => { if (reminder.notificationId) { try { await cancelPaymentReminder(reminder.notificationId); } catch { /* already gone */ } } }));
-      updateData({ transactions: [], budgets: [], wishes: [], reminders: [] });
+      updateData({ transactions: [], budgets: [], wishes: [], reminders: [], merchantRules: [] });
     } },
   ]);
 
@@ -435,7 +461,7 @@ export default function App() {
       <Pressable onPress={() => void toggleGemini(!geminiEnabled)} style={styles.toggleRow}><View><Text style={styles.toggleTitle}>Allow Gemini chat</Text><Text style={styles.toggleSub}>{geminiEnabled ? 'On · financial summary leaves this device when you send a chat' : 'Off · use private, local budget answers'}</Text></View><View style={[styles.toggleTrack, geminiEnabled && styles.toggleTrackOn]}><View style={[styles.toggleThumb, geminiEnabled && styles.toggleThumbOn]} /></View></Pressable>
       {hasApiKey && <Pressable onPress={removeApiKey} style={styles.removeKey}><Text style={styles.removeKeyText}>Remove saved API key</Text></Pressable>}
     </View>
-    <View style={styles.card}><SectionTitle title="Your data stays yours" /><Text style={styles.cardIntro}>No sign-in. Your budgets, wishes, reminders, and transactions stay in this app’s local storage. Imported CSV text is read on this device and is not retained as a file.</Text><View style={styles.storageBadge}><Text style={styles.storageBadgeIcon}>⌂</Text><Text style={styles.storageBadgeText}>LOCAL DEVICE STORAGE</Text></View></View>
+    <View style={styles.card}><SectionTitle title="Your data stays yours" /><Text style={styles.cardIntro}>No sign-in. Your budgets, wishes, reminders, transactions, and saved merchant labels stay in this app’s local storage. Imported CSV text is read on this device and is not retained as a file.</Text><View style={styles.storageBadge}><Text style={styles.storageBadgeIcon}>⌂</Text><Text style={styles.storageBadgeText}>LOCAL DEVICE STORAGE</Text></View></View>
     <View style={styles.card}><SectionTitle title="Reset" /><Text style={styles.cardIntro}>The current sample entries are only there to preview the dashboard. Clear all app records whenever you’re ready to start fresh.</Text><Pressable onPress={clearAllData} style={styles.dangerButton}><Text style={styles.dangerButtonText}>Clear finance data from this device</Text></Pressable></View>
     <Text style={styles.versionText}>FINANCE BRO · FIRST STAGE · NO AUTOPAY</Text>
   </>;
@@ -446,6 +472,11 @@ export default function App() {
   const tabIcons: Record<Tab, string> = { Home: '⌂', Activity: '↕', Budgets: '▥', Wishes: '♡', Advisor: '✳', More: '•••' };
   const tabs: Tab[] = ['Home', 'Activity', 'Budgets', 'Wishes', 'Advisor', 'More'];
   return (
+    <KeyboardAvoidingView
+      style={styles.keyboardAvoider}
+      enabled={activeTab === 'Advisor' && sheet === null}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <View style={styles.appHeader}>
@@ -453,7 +484,7 @@ export default function App() {
         <View style={styles.headerRight}><Pressable style={styles.headerIconButton} onPress={() => setActiveTab('More')}><Text style={styles.headerIcon}>◷</Text>{safeData.reminders.some((item) => item.due === today) && <View style={styles.notificationDot} />}</Pressable><View style={styles.headerBuddy}><PixelBuddy size={2.5} /></View></View>
       </View>
       <View style={styles.greetingRow}><View><Text style={styles.greeting}>{pageTitle[activeTab]} <Text style={styles.greetingEmoji}>✦</Text></Text><Text style={styles.greetingSub}>{activeTab === 'Home' ? 'Let’s keep your money feeling good.' : activeTab === 'Activity' ? 'Browse and update all your entries.' : activeTab === 'More' ? 'Reminders and local app settings.' : `${activeTab} · ${monthLabel()}`}</Text></View><View style={styles.monthPill}><Text style={styles.monthPillText}>{new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(new Date()).toUpperCase()}</Text></View></View>
-      <ScrollView key={activeTab} showsVerticalScrollIndicator={false} contentContainerStyle={styles.pageContent}>
+      <ScrollView key={activeTab} style={styles.pageScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.pageContent}>
         {activeTab === 'Home' && renderHome()}
         {activeTab === 'Activity' && renderActivity()}
         {activeTab === 'Budgets' && renderBudgets()}
@@ -465,10 +496,10 @@ export default function App() {
 
       <Sheet visible={sheet === 'transaction'} title={editingTransactionId ? 'Edit transaction' : 'Add transaction'} onClose={() => setSheet(null)} onSave={commitTransaction} saveLabel={editingTransactionId ? 'Save changes' : 'Save transaction'}>
         <Text style={styles.formIntro}>Log money in or out. You can update or remove transactions later.</Text>
-        <ChoiceRow options={['Expense', 'Income']} value={txKind === 'expense' ? 'Expense' : 'Income'} onChange={(value) => { const kind = value === 'Income' ? 'income' : 'expense'; setTxKind(kind); setTxCategory(kind === 'income' ? 'Income' : 'Groceries'); }} />
-        <Field label="What was it?" value={txTitle} onChangeText={setTxTitle} placeholder="e.g. Weekly shop" />
+        <ChoiceRow options={['Expense', 'Income']} value={txKind === 'expense' ? 'Expense' : 'Income'} onChange={(value) => { const kind = value === 'Income' ? 'income' : 'expense'; setTxKind(kind); setTxCategory(kind === 'income' ? 'Income' : findMerchantRule(txTitle, safeData.merchantRules ?? [])?.category ?? 'Groceries'); }} />
+        <Field label="What was it?" value={txTitle} onChangeText={(value) => { setTxTitle(value); const rule = txKind === 'expense' ? findMerchantRule(value, safeData.merchantRules ?? []) : undefined; if (rule) setTxCategory(rule.category); }} placeholder="e.g. Weekly shop" />
         <Field label="Amount" value={txAmount} onChangeText={setTxAmount} placeholder="0.00" keyboardType="decimal-pad" />
-        {txKind === 'expense' && <><Text style={styles.fieldLabel}>Category</Text><ChoiceRow options={CATEGORIES} value={txCategory} onChange={setTxCategory} /></>}
+        {txKind === 'expense' && <><Text style={styles.fieldLabel}>Category</Text><ChoiceRow options={CATEGORIES} value={txCategory} onChange={setTxCategory} />{findMerchantRule(txTitle, safeData.merchantRules ?? []) && <Text style={styles.merchantRuleHint}>Saved category for this merchant. You can change it here.</Text>}</>}
       </Sheet>
 
       <Sheet visible={sheet === 'budget'} title="Set a monthly limit" onClose={() => setSheet(null)} onSave={commitBudget}>
@@ -496,11 +527,21 @@ export default function App() {
         <Field label="Due date" value={reminderDate} onChangeText={setReminderDate} placeholder="YYYY-MM-DD" />
       </Sheet>
 
-      <Sheet visible={sheet === 'statement'} title="Review statement import" onClose={() => { setSheet(null); setStatementRows([]); }} onSave={confirmImport} saveLabel={`Add ${statementRows.length} transactions`}>
+      <Sheet visible={sheet === 'statement'} title="Review statement import" onClose={() => { setSheet(null); setStatementRows([]); setMerchantRulePrompts([]); }} onSave={confirmImport} saveLabel={`Add ${statementRows.length} transactions`}>
         <Text style={styles.formIntro}>Review the first rows before adding. Amounts and categories can be corrected later in Activity.</Text>
+        {merchantRulePrompts.length > 0 && <View style={styles.merchantRulesSection}>
+          <Text style={styles.merchantRulesTitle}>Label recurring merchants?</Text>
+          <Text style={styles.merchantRulesIntro}>Choose a category to apply it to these matching rows and remember it for future entries. Leave it unselected to skip.</Text>
+          {merchantRulePrompts.map((merchant) => <View key={merchant.merchantKey} style={styles.merchantRuleCard}>
+            <Text style={styles.merchantRuleName}>{merchant.merchantName}</Text>
+            <Text style={styles.merchantRuleCount}>{merchant.count} uncategorized expenses in this file</Text>
+            <ChoiceRow options={CATEGORIES} value={merchant.category ?? ''} onChange={(category) => updateMerchantRuleCategory(merchant.merchantKey, category)} />
+          </View>)}
+        </View>}
         {statementRows.slice(0, 12).map((item) => <View key={item.id} style={styles.importRow}><View style={styles.importDot} /><View style={styles.importMeta}><Text numberOfLines={1} style={styles.transactionName}>{item.title}</Text><Text style={styles.transactionSub}>{shortDate(item.date)} · {item.category}</Text></View><Text style={[styles.importAmount, item.kind === 'income' && styles.positiveAmount]}>{item.kind === 'income' ? '+' : '−'}{money(item.amount)}</Text></View>)}
         {statementRows.length > 12 && <Text style={styles.helperText}>And {statementRows.length - 12} more rows…</Text>}
       </Sheet>
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }

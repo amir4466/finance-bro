@@ -60,7 +60,7 @@ function parseStatement(source: string): Transaction[] {
   const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
   const headers = records[0].map(normalize);
   const find = (patterns: RegExp[]) => headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)));
-  const dateIndex = find([/^date$/, /datum/, /booking date/, /transaction date/]);
+  const dateIndex = find([/^date$/, /datum/, /started date/, /start date/,/booking date/, /transaction date/]);
   const descriptionIndex = find([/description/, /omschrijving/, /name$/, /merchant/, /counterparty/, /tegenpartij/, /details/]);
   const amountIndex = find([/^amount$/, /bedrag/, /mutatie/, /transaction amount/]);
   const debitIndex = find([/^debit$/, /debit amount/, /afschrijving/, /^af$/, /withdrawal/]);
@@ -95,7 +95,7 @@ function parseStatement(source: string): Transaction[] {
     }
     let category = categoryFromDescription(title);
     if (kind === 'income') category = 'Income';
-    return [{ id: makeId(), title, amount, category, kind, date: parseDate(row[dateIndex] ?? '') }];
+    return [{ id: makeId(), title, amount, category, kind, date: parseDate(row[dateIndex] ?? ''), source: 'csv' }];
   });
 }
 export { parseAmount, csvRecords, categoryFromDescription, parseStatement };

@@ -15,8 +15,8 @@ const C = {
   gold: '#D69A34',
   lilac: '#8172B3',
 };
-const CATEGORIES = ['Groceries', 'Dining', 'Transport', 'Housing', 'Subscriptions', 'Shopping', 'Utilities', 'Health', 'Other'];
+const CATEGORIES = ['Groceries', 'Dining', 'Transport', 'Housing', 'Bills', 'Investing', 'Subscriptions', 'Shopping', 'Utilities', 'Health', 'Debt & Friends', 'Other'];
 const CATEGORY_ICONS: Record<string, string> = {
-  Groceries: '◈', Dining: '♨', Transport: '↗', Housing: '⌂', Subscriptions: '▣', Shopping: '◇', Utilities: 'ϟ', Health: '+', Other: '•',
+  Groceries: '◈', Dining: '♨', Transport: '↗', Housing: '⌂', Bills: '◷', Investing: '↗', Subscriptions: '▣', Shopping: '◇', Utilities: 'ϟ', Health: '+', Other: '•',
 };
 export { C, CATEGORIES, CATEGORY_ICONS };

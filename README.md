@@ -5,10 +5,12 @@ A local-first personal finance app for iOS and Android. It has no account or sig
 ## First-stage functions
 
 - Track income and expenses, categorize transactions, and import bank transactions from CSV with a review step.
+- Label repeated uncategorized merchants during CSV review and remember the category locally for future exact matches. `Investing` is a transaction label only; the app has no investment tracking or advice.
 - Compare category budgets with actual spending and view monthly charts and transaction history.
 - Ask the advisor questions about spending and calculations. Deterministic budget insights work locally; Gemini chat is optional and requires a Gemini API key.
 - Save wishlist goals and track progress toward each target.
 - Set payment reminders and local notifications. The app never initiates payments or enables autopay.
+- On iOS, add the Finance Bro Quick Add home-screen widget to open a new expense entry. The widget contains no financial data. Widgets require an iOS development or standalone build; Expo Go does not include widget extensions. Android widget support is not enabled yet.
 - Save finance records on this device. The Gemini API key is held in the platform secure store. When Gemini is enabled and used, the advisor sends your question, the recent chat messages, and a compact financial summary to Google's API. Merchant and transaction descriptions are not sent. Do not enable it unless you are comfortable with that data leaving the device.
 
 ## Run on a phone
@@ -28,6 +30,8 @@ Local reminder notifications are supported in Expo Go. Create a development buil
 ## Bank statement CSV format
 
 Export transactions as CSV from your bank. The importer recognizes common English and Dutch headings such as `Date/Datum`, `Description/Omschrijving`, `Amount/Bedrag`, and separate `Debit/Af` or `Credit/Bij` columns. It supports comma or semicolon delimiters, previews the parsed rows, and only adds them after you confirm. PDF statements are not parsed in this first build.
+
+For repeated expenses that have no category match, choose a category in the review step to apply it to those rows and remember it on this device. Future matches use a normalized exact merchant name; similar but different names are left for review rather than guessed.
 
 ## Design
 
